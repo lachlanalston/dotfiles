@@ -35,6 +35,7 @@ pacman -S sudo
 usermod -aG wheel,audio,video,optical,storage monarch
 
 #Boot Loader
-pacman -S grub efibootmgr xf86-video-intel mesa xorg-server i3-gaps xorg-server xorg-init dhcpcd networkmanager
+pacman -S grub efibootmgr xf86-video-intel mesa xorg-server i3-gaps xorg-server xorg-init dhcpcd networkmanager lxqt
+yay -S displaylink
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
