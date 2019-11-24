@@ -21,7 +21,7 @@ arch-chroot /mnt
 ln -sf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
 hwclock --systohc
 locale-gen
-echo "LANG=en_US.UTF-8" > /etc/locale.conf
+echo "LANG=en_AU.UTF-8" > /etc/locale.conf
 echo "t440p" > /etc/hostname
 echo "127.0.0.1        localhost" >> /etc/hosts
 echo "::1              localhost" >> /etc/hosts
