@@ -2,6 +2,7 @@
 #I DONT KNWO TO MAKE AUTO PARTITION
 
 #EVERYTHING ELSE
+#Need to setup LVM 
 mkfs.fat -F32 /dev/sda1
 mkswap /dev/sda2
 swapon /dev/sda2
@@ -35,7 +36,7 @@ pacman -S sudo
 usermod -aG wheel,audio,video,optical,storage monarch
 
 #Boot Loader
-pacman -S grub efibootmgr xf86-video-intel mesa xorg-server i3-gaps xorg-server xorg-init dhcpcd networkmanager lxqt bluez bluez-utils
+pacman -S grub efibootmgr xf86-video-intel mesa xorg-server i3-gaps xorg-server xorg-init dhcpcd networkmanager lxqt bluez bluez-utils veracrypt whois
 yay -S displaylink
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
