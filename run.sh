@@ -35,10 +35,13 @@ passwd monarch
 pacman -S sudo
 usermod -aG wheel,audio,video,optical,storage monarch
 
+
+
 #Boot Loader
 pacman -S grub efibootmgr xf86-video-intel mesa xorg-server i3-gaps xorg-server xorg-init dhcpcd networkmanager lxqt bluez bluez-utils veracrypt whois
 #Add Install python 3.6
 #Add install tensorflow CPU ONLY
+#Add install for Virt-Manager need to see what other depen are needed
 yay -S displaylink
 grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
