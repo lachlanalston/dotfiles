@@ -1,5 +1,4 @@
-# dwm
-Lachlan's DWM Build
+# Lachlan's DWM Build
 
 
 
