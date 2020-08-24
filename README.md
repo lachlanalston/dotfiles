@@ -1,2 +1,9 @@
 # dwm
-## Lachlan Alston DWM Build
+Lachlan's DWM Build
+
+
+
+Features:
+  - Includes my statusbar
+  - shortcuts
+  
