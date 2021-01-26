@@ -27,10 +27,10 @@ artix-chroot /mnt
 ln -sf /usr/share/Australia/Sydney/ /etc/localtime
 hwclock --systohc
 
- pacman -S nano
- nano /etc/locale.gen
+pacman -S nano
+nano /etc/locale.gen
  
- locale-gen
+locale-gen
 #NOT DONE system wide locate
 
 pacman -S grub os-prober efibootmgr
@@ -50,7 +50,9 @@ nano /etc/hosts
 
 pacman -S dhcpcd
 
-pacman -S connman-openrc connman-gtk (or cmst for Qt-based DEs)
-rc-update add connmand
+exit
+unmount -R /mnt
+reboot
 
+#Run after reboot - Install Programs
 pacman -S xorg
