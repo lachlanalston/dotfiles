@@ -27,7 +27,7 @@ artix-chroot /mnt
 ln -sf /usr/share/Australia/Sydney/ /etc/localtime
 hwclock --systohc
 
-pacman -S nano
+pacman -S neovim
 nano /etc/locale.gen
  
 locale-gen
@@ -55,4 +55,18 @@ unmount -R /mnt
 reboot
 
 #Run after reboot - Install Programs
+#Enable multilib in the pacman config by uncommenting these two lines in pacman.conf:
+#nvim /etc/pacman.conf
+
+#[multilib]
+#Include = /etc/pacman.d/mirrorlist
+
+#Upgrade your system:
+#sudo pacman -Syyu
+
+#Show 32-bit packages in the multilib repository:
+#pacman -Sl | grep -i lib32
+
+
+
 pacman -S xorg
