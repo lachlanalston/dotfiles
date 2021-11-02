@@ -67,6 +67,17 @@ reboot
 #Show 32-bit packages in the multilib repository:
 #pacman -Sl | grep -i lib32
 
+pacman -S xorg xf87-input-wacom
 
+pacman -S mesa lib32-mesa xf86-video-ati mesa-vdpau lib32-mesa-vdpau 
 
-pacman -S xorg
+sudo pacman -S --needed base-devel
+git clone https://aur.archlinux.org/paru.git
+cd paru
+makepkg -si
+
+pacman -S keepassxc pass element-desktop veracrypt qbittorrent git youtube-dl wget mpv stellarium tcc zig tutanota-desktop discord newsboat rsync gparted btop whois python xorg dhcpcd nodejs
+
+paru -s librewolf tutanota-desktop lbry zls-git
+
+mkdir $HOME/zls && cd $HOME/zls && curl -L https://github.com/zigtools/zls/releases/download/0.1.0/x86_64-linux.tar.xz | tar -xJ --strip-components=1 -C .
