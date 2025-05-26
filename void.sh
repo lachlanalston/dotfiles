@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # === CONFIGURATION ===
-DISK="/dev/vda"                 # <--- CHANGE THIS
+DISK="/dev/vda"                 # <-- Replace with your disk (e.g. /dev/sda or /dev/nvme0n1)
 CRYPT_NAME="cryptroot"
 MOUNTPOINT="/mnt/void"
 HOSTNAME="voidlinux"
@@ -57,6 +57,8 @@ umount /mnt
 
 # === MOUNT BTRFS SUBVOLUMES ===
 echo "[+] Mounting Btrfs subvolumes..."
+mkdir -p "$MOUNTPOINT"
+
 mount -o noatime,compress=zstd,subvol=@ /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT"
 
 mkdir -p "$MOUNTPOINT"/{boot/efi,home,var/log,var/cache/xbps,.snapshots}
@@ -94,7 +96,6 @@ echo "root:$PASSWORD" | chpasswd
 
 echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
 
-echo "[+] Configuring crypttab and fstab..."
 UUID_CRYPT=$(blkid -s UUID -o value "$CRYPT_PART")
 UUID_EFI=$(blkid -s UUID -o value "$EFI_PART")
 UUID_ROOT=$(blkid -s UUID -o value /dev/mapper/$CRYPT_NAME)
@@ -110,7 +111,7 @@ UUID=$UUID_ROOT /.snapshots btrfs rw,noatime,compress=zstd,subvol=@snapshots 0 2
 UUID=$UUID_EFI /boot/efi vfat defaults 0 1
 FSTAB
 
-echo "[+] Regenerating initramfs and installing GRUB..."
+echo "[+] Generating initramfs and installing GRUB..."
 xbps-reconfigure -fa
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=$BOOTLOADER_ID
 grub-mkconfig -o /boot/grub/grub.cfg
@@ -121,4 +122,4 @@ echo "[+] Cleaning up..."
 umount -R "$MOUNTPOINT"
 cryptsetup close "$CRYPT_NAME"
 
-echo "[✓] Done. Reboot and remove installation media."
+echo "[✓] Installation complete. You can now reboot."
