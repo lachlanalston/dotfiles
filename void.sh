@@ -1,49 +1,62 @@
 #!/bin/bash
 set -euo pipefail
 
-### === CONFIGURATION ===
-DISK="/dev/sdX"             # ⚠️ Change this
+# === CONFIGURATION ===
+DISK="/dev/vda"                 # <--- CHANGE THIS
 CRYPT_NAME="cryptroot"
 MOUNTPOINT="/mnt/void"
-HOSTNAME="void"
+HOSTNAME="voidlinux"
 USERNAME="user"
 PASSWORD="password"
 TIMEZONE="Australia/Sydney"
 LOCALE="en_US.UTF-8"
 BOOTLOADER_ID="VOID"
 
-### === PARTITIONING ===
-echo "[+] Wiping and partitioning $DISK"
-sgdisk -Z "$DISK"
-sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI System Partition" "$DISK"
-sgdisk -n 2:0:0     -t 2:8300 -c 2:"Linux LUKS" "$DISK"
+# === WIPE AND PARTITION ===
+echo "[+] Wiping and partitioning $DISK using fdisk"
+wipefs -a "$DISK"
+
+fdisk "$DISK" <<EOF
+g
+n
+1
+
++512M
+t
+1
+n
+2
+
+
+w
+EOF
 
 EFI_PART="${DISK}1"
 CRYPT_PART="${DISK}2"
 
-### === FORMAT AND ENCRYPT ===
-echo "[+] Formatting EFI partition"
+# === FORMAT AND ENCRYPT ===
+echo "[+] Formatting EFI partition..."
 mkfs.vfat -F32 "$EFI_PART"
 
-echo "[+] Setting up LUKS on $CRYPT_PART"
+echo "[+] Encrypting $CRYPT_PART with LUKS2..."
 cryptsetup luksFormat --type luks2 "$CRYPT_PART"
 cryptsetup open "$CRYPT_PART" "$CRYPT_NAME"
 
-echo "[+] Creating Btrfs filesystem"
+# === CREATE BTRFS AND SUBVOLUMES ===
+echo "[+] Creating Btrfs filesystem and subvolumes..."
 mkfs.btrfs -f /dev/mapper/"$CRYPT_NAME"
-
-### === BTRFS SUBVOLUMES ===
-echo "[+] Mounting and creating subvolumes"
 mount /dev/mapper/"$CRYPT_NAME" /mnt
+
 btrfs subvolume create /mnt/@
 btrfs subvolume create /mnt/@home
 btrfs subvolume create /mnt/@log
 btrfs subvolume create /mnt/@cache
 btrfs subvolume create /mnt/@snapshots
+
 umount /mnt
 
-### === MOUNT LAYOUT ===
-echo "[+] Mounting subvolumes"
+# === MOUNT BTRFS SUBVOLUMES ===
+echo "[+] Mounting Btrfs subvolumes..."
 mount -o noatime,compress=zstd,subvol=@ /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT"
 
 mkdir -p "$MOUNTPOINT"/{boot/efi,home,var/log,var/cache/xbps,.snapshots}
@@ -55,13 +68,12 @@ mount -o noatime,compress=zstd,subvol=@snapshots  /dev/mapper/"$CRYPT_NAME" "$MO
 
 mount "$EFI_PART" "$MOUNTPOINT/boot/efi"
 
-### === INSTALL BASE SYSTEM ===
-echo "[+] Installing base system"
-xbps-install -Sy -R https://repo-default.voidlinux.org/current -r "$MOUNTPOINT" base-system grub btrfs-progs cryptsetup lvm2 sudo dracut-network
+# === INSTALL BASE SYSTEM ===
+echo "[+] Installing base system..."
+xbps-install -Sy -R https://repo-default.voidlinux.org/current -r "$MOUNTPOINT" base-system grub-x86_64-efi cryptsetup lvm2 btrfs-progs dracut-network sudo
 
-### === BASIC CONFIG ===
-echo "[+] Configuring system"
-
+# === CONFIGURE SYSTEM ===
+echo "[+] Setting up system configuration..."
 cp /etc/resolv.conf "$MOUNTPOINT/etc/"
 
 mount --rbind /sys "$MOUNTPOINT/sys"
@@ -70,6 +82,7 @@ mount --rbind /dev "$MOUNTPOINT/dev"
 
 chroot "$MOUNTPOINT" /bin/bash <<EOF
 echo "$HOSTNAME" > /etc/hostname
+
 ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
 echo "LANG=$LOCALE" > /etc/locale.conf
 echo "$LOCALE UTF-8" > /etc/default/libc-locales
@@ -81,30 +94,31 @@ echo "root:$PASSWORD" | chpasswd
 
 echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
 
-echo 'KEYMAP=us' > /etc/vconsole.conf
-
-echo "[+] Setting up crypttab and fstab"
-echo "$CRYPT_NAME UUID=$(blkid -s UUID -o value $CRYPT_PART) none luks,discard" > /etc/crypttab
+echo "[+] Configuring crypttab and fstab..."
+UUID_CRYPT=$(blkid -s UUID -o value "$CRYPT_PART")
+UUID_EFI=$(blkid -s UUID -o value "$EFI_PART")
 UUID_ROOT=$(blkid -s UUID -o value /dev/mapper/$CRYPT_NAME)
+
+echo "$CRYPT_NAME UUID=$UUID_CRYPT none luks,discard" > /etc/crypttab
+
 cat > /etc/fstab <<FSTAB
-UUID=$UUID_ROOT  /              btrfs  rw,noatime,compress=zstd,subvol=@          0 1
-UUID=$UUID_ROOT  /home          btrfs  rw,noatime,compress=zstd,subvol=@home      0 2
-UUID=$UUID_ROOT  /var/log       btrfs  rw,noatime,compress=zstd,subvol=@log       0 2
-UUID=$UUID_ROOT  /var/cache/xbps btrfs rw,noatime,compress=zstd,subvol=@cache     0 2
-UUID=$UUID_ROOT  /.snapshots    btrfs  rw,noatime,compress=zstd,subvol=@snapshots 0 2
-UUID=$(blkid -s UUID -o value $EFI_PART) /boot/efi vfat defaults 0 1
+UUID=$UUID_ROOT / btrfs rw,noatime,compress=zstd,subvol=@ 0 1
+UUID=$UUID_ROOT /home btrfs rw,noatime,compress=zstd,subvol=@home 0 2
+UUID=$UUID_ROOT /var/log btrfs rw,noatime,compress=zstd,subvol=@log 0 2
+UUID=$UUID_ROOT /var/cache/xbps btrfs rw,noatime,compress=zstd,subvol=@cache 0 2
+UUID=$UUID_ROOT /.snapshots btrfs rw,noatime,compress=zstd,subvol=@snapshots 0 2
+UUID=$UUID_EFI /boot/efi vfat defaults 0 1
 FSTAB
 
-echo "[+] Installing GRUB and regenerating initrd"
+echo "[+] Regenerating initramfs and installing GRUB..."
 xbps-reconfigure -fa
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=$BOOTLOADER_ID
 grub-mkconfig -o /boot/grub/grub.cfg
-
 EOF
 
-### === CLEANUP ===
-echo "[+] Cleaning up mounts"
+# === CLEANUP ===
+echo "[+] Cleaning up..."
 umount -R "$MOUNTPOINT"
 cryptsetup close "$CRYPT_NAME"
 
-echo "[✓] Done! You can now reboot into your new Void Linux system."
+echo "[✓] Done. Reboot and remove installation media."
