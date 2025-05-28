@@ -1,125 +1,55 @@
 #!/bin/bash
-set -euo pipefail
+set -e
 
-# === CONFIGURATION ===
-DISK="/dev/vda"                 # <-- Replace with your disk (e.g. /dev/sda or /dev/nvme0n1)
-CRYPT_NAME="cryptroot"
-MOUNTPOINT="/mnt/void"
+DISK="/dev/nvme0n1"  # Replace with your actual disk, e.g., /dev/sda
 HOSTNAME="voidlinux"
 USERNAME="user"
-PASSWORD="password"
-TIMEZONE="Australia/Sydney"
-LOCALE="en_US.UTF-8"
-BOOTLOADER_ID="VOID"
+PASSWORD="password"  # You can change this later
 
-# === WIPE AND PARTITION ===
-echo "[+] Wiping and partitioning $DISK using fdisk"
-wipefs -a "$DISK"
+# Partitioning (UEFI + ext4)
+echo "Partitioning $DISK..."
+sgdisk -Z "$DISK"
+sgdisk -n 1:0:+512M -t 1:ef00 -c 1:"EFI System" "$DISK"
+sgdisk -n 2:0:0 -t 2:8300 -c 2:"Linux Root" "$DISK"
 
-fdisk "$DISK" <<EOF
-g
-n
-1
+mkfs.fat -F32 "${DISK}1"
+mkfs.ext4 -F "${DISK}2"
 
-+512M
-t
-1
-n
-2
+# Mounting
+mount "${DISK}2" /mnt
+mkdir -p /mnt/boot/efi
+mount "${DISK}1" /mnt/boot/efi
 
+# Bootstrap base system
+xbps-install -Sy -R https://repo-default.voidlinux.org/current -r /mnt base-system grub-x86_64-efi
 
-w
-EOF
+# Configuration
+echo "$HOSTNAME" > /mnt/etc/hostname
 
-EFI_PART="${DISK}1"
-CRYPT_PART="${DISK}2"
+# fstab
+genfstab -U /mnt > /mnt/etc/fstab
 
-# === FORMAT AND ENCRYPT ===
-echo "[+] Formatting EFI partition..."
-mkfs.vfat -F32 "$EFI_PART"
-
-echo "[+] Encrypting $CRYPT_PART with LUKS2..."
-cryptsetup luksFormat --type luks2 "$CRYPT_PART"
-cryptsetup open "$CRYPT_PART" "$CRYPT_NAME"
-
-# === CREATE BTRFS AND SUBVOLUMES ===
-echo "[+] Creating Btrfs filesystem and subvolumes..."
-mkfs.btrfs -f /dev/mapper/"$CRYPT_NAME"
-mount /dev/mapper/"$CRYPT_NAME" /mnt
-
-btrfs subvolume create /mnt/@
-btrfs subvolume create /mnt/@home
-btrfs subvolume create /mnt/@log
-btrfs subvolume create /mnt/@cache
-btrfs subvolume create /mnt/@snapshots
-
-umount /mnt
-
-# === MOUNT BTRFS SUBVOLUMES ===
-echo "[+] Mounting Btrfs subvolumes..."
-mkdir -p "$MOUNTPOINT"
-
-mount -o noatime,compress=zstd,subvol=@ /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT"
-
-mkdir -p "$MOUNTPOINT"/{boot/efi,home,var/log,var/cache/xbps,.snapshots}
-
-mount -o noatime,compress=zstd,subvol=@home       /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT/home"
-mount -o noatime,compress=zstd,subvol=@log        /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT/var/log"
-mount -o noatime,compress=zstd,subvol=@cache      /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT/var/cache/xbps"
-mount -o noatime,compress=zstd,subvol=@snapshots  /dev/mapper/"$CRYPT_NAME" "$MOUNTPOINT/.snapshots"
-
-mount "$EFI_PART" "$MOUNTPOINT/boot/efi"
-
-# === INSTALL BASE SYSTEM ===
-echo "[+] Installing base system..."
-xbps-install -Sy -R https://repo-default.voidlinux.org/current -r "$MOUNTPOINT" base-system grub-x86_64-efi cryptsetup lvm2 btrfs-progs dracut-network sudo
-
-# === CONFIGURE SYSTEM ===
-echo "[+] Setting up system configuration..."
-cp /etc/resolv.conf "$MOUNTPOINT/etc/"
-
-mount --rbind /sys "$MOUNTPOINT/sys"
-mount --rbind /proc "$MOUNTPOINT/proc"
-mount --rbind /dev "$MOUNTPOINT/dev"
-
-chroot "$MOUNTPOINT" /bin/bash <<EOF
-echo "$HOSTNAME" > /etc/hostname
-
-ln -sf /usr/share/zoneinfo/$TIMEZONE /etc/localtime
-echo "LANG=$LOCALE" > /etc/locale.conf
-echo "$LOCALE UTF-8" > /etc/default/libc-locales
-xbps-reconfigure -f glibc-locales
+# Chroot and configure
+cat << 'EOF' | chroot /mnt /bin/bash
+ln -sf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
+hwclock --systohc
+passwd root <<PASS
+$PASSWORD
+$PASSWORD
+PASS
 
 useradd -m -G wheel -s /bin/bash $USERNAME
 echo "$USERNAME:$PASSWORD" | chpasswd
-echo "root:$PASSWORD" | chpasswd
 
-echo "%wheel ALL=(ALL) ALL" > /etc/sudoers.d/wheel
+# Enable sudo for wheel group
+echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
 
-UUID_CRYPT=$(blkid -s UUID -o value "$CRYPT_PART")
-UUID_EFI=$(blkid -s UUID -o value "$EFI_PART")
-UUID_ROOT=$(blkid -s UUID -o value /dev/mapper/$CRYPT_NAME)
+xbps-reconfigure -f glibc-locales
 
-echo "$CRYPT_NAME UUID=$UUID_CRYPT none luks,discard" > /etc/crypttab
-
-cat > /etc/fstab <<FSTAB
-UUID=$UUID_ROOT / btrfs rw,noatime,compress=zstd,subvol=@ 0 1
-UUID=$UUID_ROOT /home btrfs rw,noatime,compress=zstd,subvol=@home 0 2
-UUID=$UUID_ROOT /var/log btrfs rw,noatime,compress=zstd,subvol=@log 0 2
-UUID=$UUID_ROOT /var/cache/xbps btrfs rw,noatime,compress=zstd,subvol=@cache 0 2
-UUID=$UUID_ROOT /.snapshots btrfs rw,noatime,compress=zstd,subvol=@snapshots 0 2
-UUID=$UUID_EFI /boot/efi vfat defaults 0 1
-FSTAB
-
-echo "[+] Generating initramfs and installing GRUB..."
-xbps-reconfigure -fa
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=$BOOTLOADER_ID
+# Bootloader
+grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=void
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
 
-# === CLEANUP ===
-echo "[+] Cleaning up..."
-umount -R "$MOUNTPOINT"
-cryptsetup close "$CRYPT_NAME"
-
-echo "[✓] Installation complete. You can now reboot."
+# Done
+echo "Installation complete. You can now reboot."
