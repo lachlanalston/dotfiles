@@ -1,17 +1,15 @@
 #!/bin/bash
 set -e
 
-DISK="/dev/nvme0n1"  # Replace with your actual disk, e.g., /dev/sda
+DISK="/dev/nvme0n1"  # Change to /dev/sdX if not NVMe
 HOSTNAME="voidlinux"
 USERNAME="user"
 PASSWORD="password"  # You can change this later
 
-# Partitioning (UEFI + ext4 with fdisk)
+# Partitioning with fdisk
 echo "Partitioning $DISK..."
 wipefs -a "$DISK"
-parted "$DISK" mklabel gpt
 
-# Create partitions with fdisk
 fdisk "$DISK" <<EOF
 g
 n
@@ -27,28 +25,33 @@ n
 w
 EOF
 
-# Wait for partitions to be recognized
-sleep 2
+# Determine partition names based on disk type
+if [[ "$DISK" == *"nvme"* ]]; then
+  EFI="${DISK}p1"
+  ROOT="${DISK}p2"
+else
+  EFI="${DISK}1"
+  ROOT="${DISK}2"
+fi
 
-mkfs.fat -F32 "${DISK}p1"
-mkfs.ext4 -F "${DISK}p2"
+# Format partitions
+mkfs.fat -F32 "$EFI"
+mkfs.ext4 -F "$ROOT"
 
-# Mounting
-mount "${DISK}p2" /mnt
+# Mount
+mount "$ROOT" /mnt
 mkdir -p /mnt/boot/efi
-mount "${DISK}p1" /mnt/boot/efi
+mount "$EFI" /mnt/boot/efi
 
 # Bootstrap base system
 xbps-install -Sy -R https://repo-default.voidlinux.org/current -r /mnt base-system grub-x86_64-efi
 
 # Configuration
 echo "$HOSTNAME" > /mnt/etc/hostname
-
-# fstab
 genfstab -U /mnt > /mnt/etc/fstab
 
-# Chroot and configure
-cat << EOF | chroot /mnt /bin/bash
+# Chroot configuration
+cat <<EOF | chroot /mnt /bin/bash
 ln -sf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
 hwclock --systohc
 echo -e "$PASSWORD\n$PASSWORD" | passwd root
@@ -56,12 +59,9 @@ echo -e "$PASSWORD\n$PASSWORD" | passwd root
 useradd -m -G wheel -s /bin/bash $USERNAME
 echo "$USERNAME:$PASSWORD" | chpasswd
 
-# Enable sudo for wheel group
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/99_wheel
-
 xbps-reconfigure -f glibc-locales
 
-# Bootloader
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=void
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
