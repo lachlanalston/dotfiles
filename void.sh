@@ -1,12 +1,12 @@
 #!/bin/bash
 set -e
 
-DISK="/dev/nvme0n1"  # Change to /dev/sdX if not NVMe
+DISK="/dev/nvme0n1"  # Change this if needed, e.g., /dev/sda
 HOSTNAME="voidlinux"
 USERNAME="user"
 PASSWORD="password"  # You can change this later
 
-# Partitioning with fdisk
+# Partitioning
 echo "Partitioning $DISK..."
 wipefs -a "$DISK"
 
@@ -25,7 +25,7 @@ n
 w
 EOF
 
-# Determine partition names based on disk type
+# Identify partition names
 if [[ "$DISK" == *"nvme"* ]]; then
   EFI="${DISK}p1"
   ROOT="${DISK}p2"
@@ -43,14 +43,24 @@ mount "$ROOT" /mnt
 mkdir -p /mnt/boot/efi
 mount "$EFI" /mnt/boot/efi
 
-# Bootstrap base system
-xbps-install -Sy -R https://repo-default.voidlinux.org/current -r /mnt base-system grub-x86_64-efi
+# Bootstrap base system with automatic key acceptance
+xbps-install -Sy -y --repository-keys -R https://repo-default.voidlinux.org/current -r /mnt base-system grub-x86_64-efi
 
 # Configuration
 echo "$HOSTNAME" > /mnt/etc/hostname
-genfstab -U /mnt > /mnt/etc/fstab
 
-# Chroot configuration
+# Generate /etc/fstab manually
+EFI_UUID=$(blkid -s UUID -o value "$EFI")
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT")
+
+cat <<EOF > /mnt/etc/fstab
+# /etc/fstab: static file system information.
+# <file system> <mount point> <type> <options> <dump> <pass>
+UUID=$ROOT_UUID / ext4 defaults 0 1
+UUID=$EFI_UUID /boot/efi vfat umask=0077 0 2
+EOF
+
+# Chroot system configuration
 cat <<EOF | chroot /mnt /bin/bash
 ln -sf /usr/share/zoneinfo/Australia/Sydney /etc/localtime
 hwclock --systohc
