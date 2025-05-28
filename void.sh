@@ -44,7 +44,7 @@ mkdir -p /mnt/boot/efi
 mount "$EFI" /mnt/boot/efi
 
 # Bootstrap base system with automatic key acceptance
-xbps-install -Sy -y --repository-keys -R https://repo-default.voidlinux.org/current -r /mnt base-system grub-x86_64-efi
+xbps-install -Sy -y -R https://repo-default.voidlinux.org/current -r /mnt base-system grub-x86_64-efi
 
 # Configuration
 echo "$HOSTNAME" > /mnt/etc/hostname
